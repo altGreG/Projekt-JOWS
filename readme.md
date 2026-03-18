@@ -80,7 +80,7 @@ sudo mn -c
 Start your topology with:
 
 ``` bash
-sudo python3 topo.py
+sudo -E python3 topo.py
 ```
 
 After initialization, you will enter the Mininet CLI.
@@ -102,3 +102,72 @@ Once inside the CLI, you can:
     ``` bash
     help
     ```
+
+------------------------------------------------------------------------
+
+## 10. Open Terminal Windows for Individual Nodes
+
+Mininet allows you to open separate terminal windows for specific nodes
+(hosts or switches), which is useful for running commands interactively.
+
+To open terminals for specific nodes (example for h1 and h2):
+
+``` bash
+xterm h1 h2
+```
+
+Each node will open in a separate terminal window, allowing you to
+execute commands independently.
+
+------------------------------------------------------------------------
+
+## 11. Test Network Performance with iperf
+
+You can use `iperf` to measure bandwidth between hosts in your Mininet
+topology.
+
+### Step 1: Start iperf server on one host
+
+``` bash
+xterm h1
+#in xterm window for h1
+iperf -s
+```
+
+### Step 2: Run iperf client on another host
+
+``` bash
+xterm h2
+#in xterm window for h2
+iperf -c 10.2.0.1 # ip oh host h1
+```
+
+This will generate a bandwidth report between `h2` (client) and `h1`
+(server).
+
+### Optional: UDP test
+
+``` bash
+xterm h1
+iperf -s -u
+```
+
+``` bash
+xterm h2
+iperf -u -c 10.2.0.1
+```
+
+### Optional: Limit bandwidth
+
+``` bash
+xterm h1
+iperf -s
+```
+
+``` bash
+xterm h2
+iperf -c 10.2.0.1 -b 10M
+```
+
+These tests help evaluate throughput and network performance within our
+simulated topology.
