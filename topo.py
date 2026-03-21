@@ -4,7 +4,8 @@ from mininet.net import Mininet
 from mininet.node import Node
 from mininet.log import setLogLevel
 from mininet.cli import CLI
-
+from mininet.link import TCLink
+import time
 
 class LinuxRouter(Node):
     def config(self, **params):
@@ -21,7 +22,7 @@ class Topology( Topo ):
     def build( self, N=4):
 
         # Link options
-        linkopts = dict(bw=1000, delay='1ms', loss=0, max_queue_size=1000, use_htb=True)
+        linkopts = dict(bw=1000, delay='5ms', loss=0, max_queue_size=1000, use_htb=True)
 
         # Create router
         router = self.addHost("Router", cls=LinuxRouter, ip="10.1.0.254/24")
@@ -57,13 +58,47 @@ class Topology( Topo ):
         for host in hosts:
             self.addLink(host, switch, **linkopts)
 
+def run_traffic(net, mode):
+
+    h1 = net.get("h1")
+    h1.cmd(f"ping 10.1.0.1 -i 0.5 -c 800 > h1_ping.txt 2>&1 &")
+    time.sleep(10)
+
+    print("Starting traffic geneation ...")
+
+    for h in net.hosts:
+        hostname = h.name
+
+        print(hostname)
+        if hostname == "server":
+            h.cmd("iperf -s > server_tcp_iperf.txt 2>&1 &")
+            h.cmd("iperf -s -u > server_udp_iperf.txt 2>&1 &")
+        elif hostname == "Router":
+            pass
+        else:
+            if mode == "tcp":
+                h.cmd(f"iperf -c 10.1.0.1 -t 60 > {hostname}_tcp_iperf.txt 2>&1 &")
+                pass
+            elif mode == "udp":
+                h.cmd(f"iperf -c 10.1.0.1 -u -b 100M -t 60 > {hostname}_udp_iperf.txt 2>&1 &")
+                pass
+            else:
+                print("Wrong transport protocol selected!!!")
+
+    print("Waiting for execution of traffic generation ...")
+    time.sleep(70)
+    
+
 def run():
     n_hosts = 7
 
     topo = Topology(n_hosts)
-    net = Mininet(topo=topo)
+    net = Mininet(topo=topo, link=TCLink)
 
     net.start()
+
+    run_traffic(net, mode="udp")
+
     CLI(net)
 
     net.stop()
