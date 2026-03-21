@@ -1,0 +1,8 @@
+# 1. Deleting all txt files from current folder
+
+sudo rm -r ./*.txt
+
+# 2. Running mininet script
+
+sudo -E python3 topo.p
+
