@@ -26,7 +26,7 @@ class Topology( Topo ):
     def build( self, N=4):
 
         # Link options
-        linkopts = dict(bw=1000, delay='1ms', loss=0, max_queue_size=1000, use_htb=True)
+        linkopts = dict(bw=150, delay='1ms', loss=0, max_queue_size=1000, use_htb=True)
 
         # Create router
         router = self.addHost("Router", cls=LinuxRouter, ip="10.1.0.254/24")
@@ -65,8 +65,8 @@ class Topology( Topo ):
 def run_traffic(net, mode):
 
     h1 = net.get("h1")
-    h1.cmd(f"ping 10.1.0.1 -i 1 -c 100 > h1_ping.txt 2>&1 &")
-    time.sleep(20)
+    h1.cmd(f"ping 10.1.0.1 -i 1 -c 180 > h1_ping.txt 2>&1 &")
+    time.sleep(60)
 
     print("Starting traffic geneation ...")
 
@@ -84,13 +84,13 @@ def run_traffic(net, mode):
                 h.cmd(f"iperf -c 10.1.0.1 -t 60 > {hostname}_tcp_iperf.txt 2>&1 &")
                 pass
             elif mode == "udp":
-                h.cmd(f"iperf -c 10.1.0.1 -u -b 100M -t 60 > {hostname}_udp_iperf.txt 2>&1 &")
+                h.cmd(f"iperf -c 10.1.0.1 -u -b 25M -t 60 > {hostname}_udp_iperf.txt 2>&1 &")
                 pass
             else:
                 print("Wrong transport protocol selected!!!")
 
     print("Waiting for execution of traffic generation ...")
-    time.sleep(80)
+    time.sleep(120)
     
 def txt_results_to_csv(path, mode):
 
@@ -186,7 +186,14 @@ def run():
     # net = Mininet(topo=topo, link=TCLink)
 
     for i, host in enumerate(net.hosts):
-        host.cpu = 1/n_hosts
+        if host.name == "server":
+            print("Server cpu set!")
+            host.cpu = 1    
+        elif host.name == "Router":
+            print("Router cpu set!")
+            host.cpu = 1
+        else:
+            host.cpu = 1/n_hosts
 
     time.sleep(1)
 
@@ -194,7 +201,7 @@ def run():
 
     net.pingAll()
 
-    time.sleep(1)
+    time.sleep(5)
 
     run_traffic(net, mode=mode)
 
