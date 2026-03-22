@@ -171,3 +171,83 @@ iperf -c 10.2.0.1 -b 10M
 
 These tests help evaluate throughput and network performance within our
 simulated topology.
+
+------------------------------------------------------------------------
+
+# Troubleshooting
+
+## 12. Fix CPULimitedHost (Mount cgroups)
+
+If you use `CPULimitedHost` and CPU limits are not applied, the problem
+is usually that the **CPU cgroup controller is not mounted**.
+
+### Step 1 -- Check if CPU cgroup exists
+
+``` bash
+ls /sys/fs/cgroup
+```
+
+If the `cpu` directory is missing, the CPU controller is not mounted.
+
+------------------------------------------------------------------------
+
+### Step 2 -- Manually mount CPU cgroup
+
+``` bash
+sudo mkdir -p /sys/fs/cgroup/cpu
+sudo mount -t cgroup -o cpu cpu /sys/fs/cgroup/cpu
+```
+
+After mounting, rerun your Mininet topology.
+
+`CPULimitedHost` should now correctly limit CPU usage.
+
+------------------------------------------------------------------------
+
+### Step 3 -- Ubuntu systems using cgroups v2
+
+New Ubuntu versions use **cgroups v2** by default, but **Mininet
+requires cgroups v1**.
+
+Edit GRUB:
+
+``` bash
+sudo nano /etc/default/grub
+```
+
+Find:
+
+``` bash
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
+```
+
+or 
+
+``` bash
+GRUB_CMDLINE_LINUX_DEFAULT=""
+```
+
+Replace with:
+
+``` bash
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash systemd.unified_cgroup_hierarchy=0"
+```
+
+Update GRUB and reboot:
+
+``` bash
+sudo update-grub
+sudo reboot
+```
+
+------------------------------------------------------------------------
+
+### Step 4 -- Verify
+
+After rebooting:
+
+``` bash
+ls /sys/fs/cgroup/cpu
+```
+
+If the directory exists, `CPULimitedHost` should work correctly.

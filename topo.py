@@ -5,6 +5,7 @@ from mininet.node import Node
 from mininet.log import setLogLevel
 from mininet.cli import CLI
 from mininet.link import TCLink
+from mininet.node import CPULimitedHost
 import re
 import csv
 from pathlib import Path
@@ -64,8 +65,8 @@ class Topology( Topo ):
 def run_traffic(net, mode):
 
     h1 = net.get("h1")
-    h1.cmd(f"ping 10.1.0.1 -i 0.5 -c 800 > h1_ping.txt 2>&1 &")
-    time.sleep(10)
+    h1.cmd(f"ping 10.1.0.1 -i 1 -c 100 > h1_ping.txt 2>&1 &")
+    time.sleep(20)
 
     print("Starting traffic geneation ...")
 
@@ -89,7 +90,7 @@ def run_traffic(net, mode):
                 print("Wrong transport protocol selected!!!")
 
     print("Waiting for execution of traffic generation ...")
-    time.sleep(70)
+    time.sleep(80)
     
 def txt_results_to_csv(path, mode):
 
@@ -181,9 +182,19 @@ def run():
 
 
     topo = Topology(n_hosts)
-    net = Mininet(topo=topo, link=TCLink)
+    net = Mininet(topo=topo, host=CPULimitedHost,link=TCLink)
+    # net = Mininet(topo=topo, link=TCLink)
+
+    for i, host in enumerate(net.hosts):
+        host.cpu = 1/n_hosts
+
+    time.sleep(1)
 
     net.start()
+
+    net.pingAll()
+
+    time.sleep(1)
 
     run_traffic(net, mode=mode)
 
