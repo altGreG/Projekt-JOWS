@@ -1,8 +1,15 @@
-# 1. Deleting all txt files from current folder
+# 1. Deleting all txt or csv files from current folder
 
 sudo rm -r ./*.txt
+
+sudo rm -r ./*.csv
+
 
 # 2. Running mininet script
 
 sudo -E python3 topo.p
 
+# 3. Iperf3 installation
+
+sudo apt update
+sudo apt install iperf3
