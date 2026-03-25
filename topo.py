@@ -84,7 +84,7 @@ def run_traffic(net, mode):
                 h.cmd(f"iperf -c 10.1.0.1 -t 60 > {hostname}_tcp_iperf.txt 2>&1 &")
                 pass
             elif mode == "udp":
-                h.cmd(f"iperf -c 10.1.0.1 -u -b 25M -t 60 > {hostname}_udp_iperf.txt 2>&1 &")
+                h.cmd(f"iperf -c 10.1.0.1 -u -b 10M -t 60 > {hostname}_udp_iperf.txt 2>&1 &")
                 pass
             else:
                 print("Wrong transport protocol selected!!!")
@@ -143,7 +143,7 @@ def txt_results_to_csv(path, mode):
                             lost = m_report.group(3)
                             total = m_report.group(4)
 
-                    iperf_data.append([p.name, local_ip, server_ip, bandwidth, jitter, lost, total])
+                            iperf_data.append([p.name, local_ip, server_ip, bandwidth, jitter, lost, total])
             
             if mode == "tcp":
                 pass
@@ -173,7 +173,57 @@ def txt_results_to_csv(path, mode):
                 writer.writerow(d)
 
     print("Saved parsed data in iperf.csv and ping.csv")
+def setup_per_host_qos(net, n_hosts):
+    router = net.get("Router")
 
+    # Reset tc
+    router.cmd("tc qdisc del dev router-eth2 root || true")
+
+    # Root HTB
+    router.cmd("tc qdisc add dev router-eth2 root handle 1: htb default 999")
+
+    # Total bandwidth class
+    router.cmd("tc class add dev router-eth2 parent 1: classid 1:1 htb rate 150mbit")
+
+    base_rate = int(150 / n_hosts)
+
+    for i in range(1, n_hosts + 1):
+        class_id = 10 + i
+
+        # Create class per host
+        router.cmd(
+            f"tc class add dev router-eth2 parent 1:1 classid 1:{class_id} "
+            f"htb rate {base_rate}mbit ceil 150mbit"
+        )
+
+        # Attach fair queue inside each class
+        router.cmd(
+            f"tc qdisc add dev router-eth2 parent 1:{class_id} handle {class_id}: fq_codel"
+        )
+
+        # Match traffic from host IP
+        router.cmd(
+            f"tc filter add dev router-eth2 protocol ip parent 1: prio 1 u32 "
+            f"match ip src 10.2.0.{i} flowid 1:{class_id}"
+        )
+
+def setup_host_rate_limit(net, n_hosts, rate="20mbit"):
+    print("Applying per-host rate limiting (TBF)...")
+
+    for i in range(1, n_hosts + 1):
+        h = net.get(f"h{i}")
+        intf = f"h{i}-eth0"
+
+        print(f"Configuring {h.name} on {intf}")
+
+        # Remove existing qdisc (important!)
+        h.cmd(f"tc qdisc del dev {intf} root || true")
+
+        # Apply Token Bucket Filter
+        h.cmd(
+            f"tc qdisc add dev {intf} root tbf "
+            f"rate {rate} burst 32kbit latency 400ms"
+        )
 
 def run():
     n_hosts = 7
@@ -195,10 +245,13 @@ def run():
         else:
             host.cpu = 1/n_hosts
 
+    
+    
     time.sleep(1)
 
     net.start()
-
+    #setup_per_host_qos(net, n_hosts)
+    setup_host_rate_limit(net, n_hosts)
     net.pingAll()
 
     time.sleep(5)
