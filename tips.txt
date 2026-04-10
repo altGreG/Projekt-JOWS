@@ -13,3 +13,9 @@ sudo -E python3 topo.p
 
 sudo apt update
 sudo apt install iperf3
+
+# Running experiment loop script
+
+sudo chmod 777 run_mn.sh
+
+sudo ./run_mn.sh
