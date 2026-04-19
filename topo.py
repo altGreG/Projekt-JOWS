@@ -109,6 +109,8 @@ def run_traffic(net, mode):
     time.sleep(60)
     
 
+# QOS on Router
+
 
 def setup_router_htb(net):
     r = net.get("Router")
@@ -127,9 +129,9 @@ def setup_router_htb(net):
     r.cmd(f"tc class add dev {intf} parent 1:1 classid 1:20 htb rate 10mbit ceil 15mbit prio 1")
     r.cmd(f"tc qdisc add dev {intf} parent 1:20 fq_codel")
 
-    # UDP - 1-5 Mbps (mały bufor, by nie generować dużych opóźnień)
+    # UDP - 1-5 Mbps (mały bufor, by nie generować mega opóźnień)
     r.cmd(f"tc class add dev {intf} parent 1:1 classid 1:30 htb rate 5mbit ceil 35mbit prio 2")
-    r.cmd(f"tc qdisc add dev {intf} parent 1:30 pfifo limit 50")
+    r.cmd(f"tc qdisc add dev {intf} parent 1:30 pfifo limit 50") # Zmniejszono z 200 na 50
 
     # Filtry
     r.cmd(f"tc filter add dev {intf} protocol ip parent 1: prio 1 u32 match ip protocol 1 0xff flowid 1:10")
@@ -145,7 +147,7 @@ def setup_router_hfsc(net):
     # ROOT: Default 30 (UDP)
     r.cmd(f"tc qdisc add dev {intf} root handle 1: hfsc default 30")
 
-    # Główna klasa (Upper-Limit ustawiony na 50mbit - tyle co fizyczny link)
+    # Główna klasa (Upper-Limit ustawiony na 30mbit - tyle co fizyczny link)
     r.cmd(f"tc class add dev {intf} parent 1: classid 1:1 "
           f"hfsc sc rate 50mbit ul rate 50mbit")
 
@@ -178,7 +180,7 @@ def setup_router_cake(net):
 
     r.cmd(f"tc qdisc del dev {intf} root || true")
 
-    # bandwidth 50mbit: limit całkowity
+    # bandwidth 30mbit: limit całkowity
     # besteffort: wyłączamy diffserv4, jeśli nie tagujemy pakietów (uproszczenie)
     # wash: czyści stare tagi DSCP, które mogą mylić CAKE
     # rtt 100ms: informujemy CAKE, że spodziewamy się większych opóźnień (przestanie tak mocno ucinac pakiety)
@@ -203,7 +205,7 @@ def setup_hosts_htb(net, n_hosts):
         h.cmd(f"ethtool -K {intf} tso off gso off gro off")
         h.cmd(f"tc qdisc del dev {intf} root || true")
 
-        # Główne pasmo hosta ustawiamy rozsądnie (np. 10mbit na hosta przy 50mbit łączu total)
+        # Główne pasmo hosta ustawiamy rozsądnie (np. 10mbit na hosta przy 30mbit łączu total)
         h.cmd(f"tc qdisc add dev {intf} root handle 1: htb default 30")
         h.cmd(f"tc class add dev {intf} parent 1: classid 1:1 htb rate 10mbit ceil 15mbit")
 
@@ -224,31 +226,49 @@ def setup_hosts_htb(net, n_hosts):
         h.cmd(f"tc filter add dev {intf} protocol ip parent 1: prio 2 u32 match ip protocol 6 0xff flowid 1:20")
         h.cmd(f"tc filter add dev {intf} protocol ip parent 1: prio 3 u32 match ip protocol 17 0xff flowid 1:30")
 
+
 def setup_hosts_hfsc(net, n_hosts):
-    print("Applying HFSC QoS on hosts...")
+    print("Applying HFSC + fq_codel QoS on hosts (Router-like)...")
     for i in range(1, n_hosts + 1):
         h = net.get(f"h{i}")
         intf = f"h{i}-eth0"
+        
+        # 1. Czyszczenie i optymalizacja interfejsu
         h.cmd(f"ethtool -K {intf} tso off gso off gro off")
         h.cmd(f"tc qdisc del dev {intf} root || true")
 
+        # 2. ROOT: HFSC z domyślną klasą 1:30 (UDP)
         h.cmd(f"tc qdisc add dev {intf} root handle 1: hfsc default 30")
-        h.cmd(f"tc class add dev {intf} parent 1: classid 1:1 hfsc sc rate 10mbit ul rate 15mbit")
 
-        # ICMP (RT dla minimalnego jittera na samym hoście)
-        h.cmd(f"tc class add dev {intf} parent 1:1 classid 1:10 hfsc rt m1 10mbit d 1ms m2 2mbit ls rate 2mbit")
-        
-        # TCP i UDP (Link-Share)
-        h.cmd(f"tc class add dev {intf} parent 1:1 classid 1:20 hfsc ls rate 10mbit ul rate 15mbit")
-        h.cmd(f"tc class add dev {intf} parent 1:1 classid 1:30 hfsc ls rate 1mbit ul rate 5mbit")
+        # Główna klasa (Limit całkowity hosta: 15mbit)
+        h.cmd(f"tc class add dev {intf} parent 1: classid 1:1 "
+              f"hfsc sc rate 15mbit ul rate 15mbit")
 
-        h.cmd(f"tc qdisc add dev {intf} parent 1:10 fq_codel target 1ms")
+        # 3. Klasa 1:10 - ICMP (Najwyższy priorytet - Real-Time)
+        # Gwarancja pasma i burst (d 1ms m1 10mbit) dla minimalnego pingu
+        h.cmd(f"tc class add dev {intf} parent 1:1 classid 1:10 "
+              f"hfsc rt m1 10mbit d 1ms m2 2mbit ls rate 2mbit")
+        # fq_codel z agresywnym targetem dla ICMP
+        h.cmd(f"tc qdisc add dev {intf} parent 1:10 fq_codel target 1ms interval 20ms")
+
+        # 4. Klasa 1:20 - TCP (Średni priorytet)
+        # Gwarancja 10mbit, max 15mbit
+        h.cmd(f"tc class add dev {intf} parent 1:1 classid 1:20 "
+              f"hfsc ls rate 10mbit ul rate 15mbit")
+        # Standardowy fq_codel dla sprawiedliwego podziału strumieni TCP
         h.cmd(f"tc qdisc add dev {intf} parent 1:20 fq_codel")
-        h.cmd(f"tc qdisc add dev {intf} parent 1:30 pfifo limit 50")
 
+        # 5. Klasa 1:30 - UDP (Najniższy priorytet / Limit 5mbit)
+        h.cmd(f"tc class add dev {intf} parent 1:1 classid 1:30 "
+              f"hfsc ls rate 2mbit ul rate 5mbit")
+        # pfifo limit 50 - brak AQM, by "karać" nadmiarowy ruch UDP (jak na routerze)
+        h.cmd(f"tc qdisc add dev {intf} parent 1:30 pfifo limit 200")
+
+        # 6. FILTRY u32 (Klasyfikacja protokołów)
+        # ICMP -> 1:10
         h.cmd(f"tc filter add dev {intf} protocol ip parent 1: prio 1 u32 match ip protocol 1 0xff flowid 1:10")
+        # TCP -> 1:20
         h.cmd(f"tc filter add dev {intf} protocol ip parent 1: prio 2 u32 match ip protocol 6 0xff flowid 1:20")
-        h.cmd(f"tc filter add dev {intf} protocol ip parent 1: prio 3 u32 match ip protocol 17 0xff flowid 1:30")
 
 def setup_hosts_cake(net, n_hosts):
     print("Applying CAKE QoS on hosts...")
@@ -259,14 +279,16 @@ def setup_hosts_cake(net, n_hosts):
         h.cmd(f"tc qdisc del dev {intf} root || true")
 
         # bandwidth: ustawiamy na 10-15mbit, by host nie "zalał" routera
+        # triple-isolate: sprawia, że ping i iperf wewnątrz jednego hosta są traktowane osobno
         h.cmd(
             f"tc qdisc add dev {intf} root cake "
             f"bandwidth 15mbit "
-            f"rtt 100ms "
+            f"rtt 20ms "
             f"raw "
             f"dual-srchost "
             f"nonat"
         )
+
 
 def run():
     
@@ -333,6 +355,8 @@ def run():
     time.sleep(5)
 
     run_traffic(net, mode=mode)
+
+    # txt_results_to_csv(results_folder, mode)
 
     # CLI(net)
     time.sleep(5)
